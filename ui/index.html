@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>vidgrab</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" /><path d="M11 9.5v13l11-6.5z" /></svg>
+        <span>vidgrab</span>
+      </div>
+      <div class="tools" id="tools">
+        <span class="chip" data-tool="ytdlp">yt-dlp …</span>
+        <span class="chip" data-tool="ffmpeg">ffmpeg</span>
+        <span class="chip" data-tool="browser">navigateur</span>
+        <button class="ghost small" id="update-ytdlp" type="button">Mettre à jour yt-dlp</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="intro">
+        <h1>Toutes les vidéos d'une page,<br />ou d'un site entier.</h1>
+        <p>
+          Colle une adresse. vidgrab essaie yt-dlp (≈1 800 sites reconnus), lit le HTML, puis ouvre un navigateur
+          invisible pour attraper les lecteurs JavaScript.
+        </p>
+      </section>
+
+      <form id="grab" class="card form" autocomplete="off">
+        <div class="url-row">
+          <input id="url" name="url" type="url" placeholder="https://exemple.com/videos" required />
+          <button class="primary" type="submit">Récupérer</button>
+        </div>
+
+        <div class="row">
+          <div class="segmented" role="radiogroup" aria-label="Portée">
+            <label><input type="radio" name="scope" value="page" checked /><span>Cette page</span></label>
+            <label><input type="radio" name="scope" value="site" /><span>Tout le site</span></label>
+          </div>
+          <label class="field">
+            <span>Qualité</span>
+            <select name="quality">
+              <option value="best">Meilleure</option>
+              <option value="1080">1080p max</option>
+              <option value="720">720p max</option>
+              <option value="480">480p max</option>
+              <option value="audio">Audio seul (mp3)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Navigateur</span>
+            <select name="browser">
+              <option value="auto">Auto</option>
+              <option value="always">Toujours</option>
+              <option value="never">Jamais</option>
+            </select>
+          </label>
+          <label class="field narrow">
+            <span>Simultanés</span>
+            <input name="concurrency" type="number" min="1" max="10" value="3" />
+          </label>
+          <label class="check"><input type="checkbox" name="listOnly" /> Lister seulement</label>
+        </div>
+
+        <details class="advanced">
+          <summary>Options avancées</summary>
+          <div class="row">
+            <label class="field narrow"><span>Pages max</span><input name="maxPages" type="number" min="1" value="200" /></label>
+            <label class="field narrow"><span>Profondeur</span><input name="maxDepth" type="number" min="0" value="4" /></label>
+            <label class="field"><span>Inclure (regex)</span><input name="include" placeholder="/videos/" /></label>
+            <label class="field"><span>Exclure (regex)</span><input name="exclude" placeholder="/tag/|/page/" /></label>
+            <label class="field">
+              <span>Cookies du navigateur</span>
+              <select name="cookiesFromBrowser">
+                <option value="">Aucun</option>
+                <option value="firefox">Firefox</option>
+                <option value="chrome">Chrome</option>
+                <option value="edge">Edge</option>
+                <option value="brave">Brave</option>
+              </select>
+            </label>
+            <label class="check"><input type="checkbox" name="ignoreRobots" /> Ignorer robots.txt</label>
+          </div>
+          <p class="hint">
+            Les cookies servent pour les vidéos d'un compte auquel tu as accès. Chrome chiffre ses cookies depuis la
+            v127 : Firefox marche le mieux.
+          </p>
+        </details>
+        <p class="form-error" id="form-error" hidden></p>
+      </form>
+
+      <section id="jobs" class="jobs"></section>
+      <p class="empty" id="empty">Aucune tâche pour l'instant.</p>
+    </main>
+
+    <template id="job-tpl">
+      <article class="card job">
+        <header class="job-head">
+          <div class="job-title">
+            <span class="badge"></span>
+            <a class="job-url" target="_blank" rel="noreferrer"></a>
+          </div>
+          <div class="job-actions">
+            <button class="ghost small" data-act="all" type="button" hidden>Tout télécharger</button>
+            <button class="ghost small" data-act="open" type="button">Ouvrir le dossier</button>
+            <button class="ghost small" data-act="cancel" type="button">Annuler</button>
+            <button class="ghost small icon" data-act="remove" type="button" title="Retirer">×</button>
+          </div>
+        </header>
+        <div class="stats">
+          <span><b data-stat="pages">0</b> pages</span>
+          <span><b data-stat="found">0</b> trouvées</span>
+          <span><b data-stat="done">0</b> téléchargées</span>
+          <span><b data-stat="failed">0</b> échecs</span>
+          <span class="last-log"></span>
+        </div>
+        <ul class="videos"></ul>
+        <details class="log"><summary>Journal</summary><ol></ol></details>
+      </article>
+    </template>
+
+    <template id="video-tpl">
+      <li class="video">
+        <div class="thumb"></div>
+        <div class="meta">
+          <div class="v-title"></div>
+          <div class="v-sub"><span class="kind"></span><a class="v-page" target="_blank" rel="noreferrer"></a></div>
+          <div class="bar"><i></i></div>
+        </div>
+        <div class="v-side">
+          <span class="v-status"></span>
+          <span class="v-info"></span>
+          <button class="ghost small" data-act="dl" type="button" hidden>Télécharger</button>
+        </div>
+      </li>
+    </template>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
