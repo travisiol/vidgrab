@@ -38,8 +38,14 @@
 
       <form id="grab" class="card form" autocomplete="off">
         <div class="url-row">
-          <input id="url" name="url" type="url" placeholder="https://exemple.com/videos" required />
-          <button class="primary" type="submit">Récupérer</button>
+          <textarea
+            id="url"
+            name="url"
+            rows="1"
+            placeholder="https://exemple.com/videos — colle un ou plusieurs liens (Maj+Entrée = nouvelle ligne)"
+            required
+          ></textarea>
+          <button class="primary" type="submit" id="submit">Récupérer</button>
         </div>
 
         <div class="row">
@@ -107,6 +113,7 @@
             v127 : Firefox marche le mieux.
           </p>
         </details>
+        <p class="hint url-hint" id="url-hint" hidden></p>
         <p class="form-error" id="form-error" hidden></p>
       </form>
 

@@ -155,8 +155,16 @@ main {
   gap: 10px;
 }
 
-.url-row input {
+.url-row {
+  align-items: stretch;
+}
+
+.url-row textarea {
   flex: 1;
+  resize: none;
+  max-height: 260px;
+  line-height: 1.5;
+  font-family: inherit;
   min-width: 0;
   padding: 14px 16px;
   font-size: 16px;
@@ -166,7 +174,7 @@ main {
   outline: none;
 }
 
-.url-row input:focus {
+.url-row textarea:focus {
   border-color: var(--ink);
   background: var(--card);
 }
@@ -184,6 +192,9 @@ button:disabled {
 
 .primary {
   padding: 0 24px;
+  min-height: 52px;
+  align-self: flex-start;
+  white-space: nowrap;
   background: var(--ink);
   color: #fff;
   font-weight: 600;
@@ -204,6 +215,11 @@ button:disabled {
 
 .ghost:hover:not(:disabled) {
   border-color: var(--ink);
+}
+
+.primary.small {
+  min-height: 0;
+  align-self: auto;
 }
 
 .small {

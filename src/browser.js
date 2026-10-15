@@ -47,6 +47,36 @@ export async function launchBrowser() {
   });
 }
 
+// One headless browser shared by every running job (each sniff gets its own context).
+let shared = null;
+let users = 0;
+
+export async function acquireBrowser() {
+  users++;
+  try {
+    if (!shared) shared = launchBrowser();
+    let browser = await shared;
+    if (!browser.isConnected()) {
+      shared = launchBrowser();
+      browser = await shared;
+    }
+    return browser;
+  } catch (err) {
+    users--;
+    shared = null;
+    throw err;
+  }
+}
+
+export async function releaseBrowser() {
+  users = Math.max(0, users - 1);
+  if (users || !shared) return;
+  const pending = shared;
+  shared = null;
+  const browser = await pending.catch(() => null);
+  await browser?.close().catch(() => {});
+}
+
 export async function sniff(browser, pageUrl, { cookies = [], timeoutMs = 30000, settleMs = 7000 } = {}) {
   const context = await browser.newContext({
     userAgent: UA,

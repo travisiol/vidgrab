@@ -17,12 +17,28 @@ import {
 import { isDrmService, isDrmError } from './drm.js';
 import { extract, isEmbedHost, mediaKind, isAdUrl } from './extract.js';
 import { fetchPage, fetchText, loadRobots } from './fetch.js';
-import { launchBrowser, findBrowser, sniff } from './browser.js';
+import { acquireBrowser, releaseBrowser, findBrowser, sniff } from './browser.js';
 import { readCookieFile, writeCookieFile } from './cookies.js';
 import { probe, download } from './ytdlp.js';
 
 const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 export const DEFAULT_OUT = path.join(root, 'downloads');
+
+// Download slots shared by all jobs, so pasting 20 links doesn't start 60 yt-dlp processes.
+const slots = { limit: Number(process.env.VIDGRAB_MAX_DOWNLOADS) || 6, used: 0 };
+const starved = new Set();
+// Files claimed by any job in this process: two links leading to the same video must not
+// write the same file at the same time.
+const claimed = new Set();
+const wakeStarved = () => {
+  for (const job of [...starved]) job.pump();
+};
+
+/** Pulls every http(s) link out of free text (one per line, spaces, commas…), deduplicated. */
+export function parseUrls(text) {
+  const found = String(text ?? '').match(/https?:\/\/[^\s,;<>"']+/gi) ?? [];
+  return [...new Set(found.map((u) => u.replace(/[).\]]+$/, '')))];
+}
 
 export const DEFAULTS = {
   scope: 'page', // 'page' | 'site'
@@ -139,8 +155,16 @@ export class Job extends EventEmitter {
       this.log(`Erreur : ${err.message}`, 'error');
       this.setStatus(this.cancelled ? 'cancelled' : 'failed');
     } finally {
-      await this.browser?.close().catch(() => {});
+      await this.releaseBrowserOnce();
     }
+  }
+
+  async releaseBrowserOnce() {
+    if (!this.browserPromise) return;
+    const pending = this.browserPromise;
+    this.browserPromise = null;
+    this.browser = null;
+    if (await pending) await releaseBrowser();
   }
 
   async prepare() {
@@ -185,8 +209,12 @@ export class Job extends EventEmitter {
     this.log('Annulation…', 'warn');
     this.dlQueue.length = 0;
     for (const cancel of this.active.values()) cancel();
-    for (const v of this.state.videos) if (v.status === 'queued') this.updateVideo(v, { status: 'cancelled' });
-    this.browser?.close().catch(() => {});
+    for (const v of this.state.videos) {
+      if (v.status !== 'queued') continue;
+      claimed.delete(v.claim);
+      this.updateVideo(v, { status: 'cancelled' });
+    }
+    starved.delete(this);
     this.resolveIdle();
   }
 
@@ -413,13 +441,16 @@ export class Job extends EventEmitter {
         this.opts.browser = 'never';
         return null;
       }
-      this.browserPromise = launchBrowser().then((b) => (this.browser = b));
+      this.browserPromise = acquireBrowser().then(
+        (b) => (this.browser = b),
+        (err) => {
+          this.log(`Navigateur headless : ${err.message}`, 'warn');
+          this.opts.browser = 'never';
+          return null;
+        },
+      );
     }
-    return this.browserPromise.catch((err) => {
-      this.log(`Navigateur headless : ${err.message}`, 'warn');
-      this.opts.browser = 'never';
-      return null;
-    });
+    return this.browserPromise;
   }
 
   async sniffPage(url) {
@@ -525,10 +556,13 @@ export class Job extends EventEmitter {
 
   enqueueDownload(video) {
     if (this.cancelled) return false;
-    if (video.kind !== 'native' && this.doneDirect.has(mediaKey(video.url))) {
+    const claim = video.kind === 'native' ? video.key : mediaKey(video.url);
+    if ((video.kind !== 'native' && this.doneDirect.has(mediaKey(video.url))) || claimed.has(claim)) {
       this.updateVideo(video, { status: 'exists', percent: 100 });
       return false;
     }
+    claimed.add(claim);
+    video.claim = claim;
     this.updateVideo(video, { status: 'queued', error: null });
     this.dlQueue.push(video);
     this.pump();
@@ -561,15 +595,23 @@ export class Job extends EventEmitter {
 
   pump() {
     while (this.dlRunning < this.opts.concurrency && this.dlQueue.length && !this.cancelled) {
+      if (slots.used >= slots.limit) {
+        starved.add(this);
+        return;
+      }
       const video = this.dlQueue.shift();
       this.dlRunning++;
+      slots.used++;
       this.runDownload(video).finally(() => {
         this.dlRunning--;
+        slots.used--;
         this.active.delete(video.id);
         this.pump();
+        wakeStarved();
         this.resolveIdle();
       });
     }
+    if (!this.dlQueue.length) starved.delete(this);
   }
 
   async runDownload(video) {
@@ -605,6 +647,8 @@ export class Job extends EventEmitter {
     );
     this.active.set(video.id, job.cancel);
     const result = await job.promise;
+    // A finished file stays claimed (the archive covers it); a failed one can be retried.
+    if (!result.ok || this.cancelled) claimed.delete(video.claim);
     if (this.cancelled) return this.updateVideo(video, { status: 'cancelled' });
     if (result.ok) {
       const status = video.file ? 'done' : 'exists';

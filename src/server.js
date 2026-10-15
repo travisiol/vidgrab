@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { Job, DEFAULT_OUT } from './engine.js';
+import { Job, DEFAULT_OUT, parseUrls } from './engine.js';
 import { locateYtDlp, ffmpegLocation, updateYtDlp } from './ytdlp.js';
 import { findBrowser } from './browser.js';
 
@@ -89,25 +89,30 @@ const server = http.createServer(async (req, res) => {
       if (req.method === 'GET') return send(res, 200, [...jobs.values()].map(summary).reverse());
       if (req.method === 'POST') {
         const body = await readJson(req);
-        if (!body.url || !/^https?:\/\//i.test(body.url.trim())) return send(res, 400, { error: 'URL http(s) requise' });
-        const job = new Job(body.url, {
-          scope: body.scope === 'site' ? 'site' : 'page',
-          maxPages: body.maxPages ? Number(body.maxPages) : undefined,
-          maxDepth: body.maxDepth ? Number(body.maxDepth) : undefined,
-          browser: ['auto', 'always', 'never'].includes(body.browser) ? body.browser : undefined,
-          quality: body.quality,
-          concurrency: body.concurrency ? Number(body.concurrency) : undefined,
-          listOnly: body.mode === 'list' || !!body.listOnly,
-          batchSize: body.mode === 'batch' ? Math.max(1, Number(body.batchSize) || 5) : 0,
-          include: body.include || undefined,
-          exclude: body.exclude || undefined,
-          respectRobots: body.ignoreRobots ? false : undefined,
-          cookiesFromBrowser: body.cookiesFromBrowser || undefined,
-          outDir: body.outDir || undefined,
+        const urls = parseUrls([].concat(body.urls ?? [], body.url ?? []).join(' '));
+        if (!urls.length) return send(res, 400, { error: 'Au moins une URL http(s) requise' });
+        // One job per link: they all run at once, sharing the global download slots.
+        const ids = urls.map((url) => {
+          const job = new Job(url, {
+            scope: body.scope === 'site' ? 'site' : 'page',
+            maxPages: body.maxPages ? Number(body.maxPages) : undefined,
+            maxDepth: body.maxDepth ? Number(body.maxDepth) : undefined,
+            browser: ['auto', 'always', 'never'].includes(body.browser) ? body.browser : undefined,
+            quality: body.quality,
+            concurrency: body.concurrency ? Number(body.concurrency) : undefined,
+            listOnly: body.mode === 'list' || !!body.listOnly,
+            batchSize: body.mode === 'batch' ? Math.max(1, Number(body.batchSize) || 5) : 0,
+            include: body.include || undefined,
+            exclude: body.exclude || undefined,
+            respectRobots: body.ignoreRobots ? false : undefined,
+            cookiesFromBrowser: body.cookiesFromBrowser || undefined,
+            outDir: body.outDir || undefined,
+          });
+          jobs.set(job.id, job);
+          job.run();
+          return job.id;
         });
-        jobs.set(job.id, job);
-        job.run();
-        return send(res, 201, { id: job.id });
+        return send(res, 201, { id: ids[0], ids });
       }
     }
 

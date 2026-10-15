@@ -92,6 +92,28 @@ const syncBatchField = () => {
 modeSelect.addEventListener('change', syncBatchField);
 syncBatchField();
 
+// Several links at once: the textarea grows with its content and the button shows the count.
+const urlBox = $('#url');
+const countUrls = () => new Set(urlBox.value.match(/https?:\/\/[^\s,;<>"']+/gi) ?? []).size;
+const syncUrlBox = () => {
+  urlBox.style.height = 'auto';
+  urlBox.style.height = `${urlBox.scrollHeight + 2}px`;
+  const n = countUrls();
+  $('#submit').textContent = n > 1 ? `Récupérer les ${n} liens` : 'Récupérer';
+  const hint = $('#url-hint');
+  hint.hidden = n < 2;
+  hint.textContent = `${n} liens : une tâche par lien, toutes lancées en même temps. Maj+Entrée pour aller à la ligne.`;
+};
+urlBox.addEventListener('input', syncUrlBox);
+urlBox.addEventListener('keydown', (e) => {
+  // Enter submits; Shift+Enter adds a line for the next link (pasting several links just works).
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    form.requestSubmit();
+  }
+});
+syncUrlBox();
+
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(form);
@@ -108,9 +130,10 @@ form.addEventListener('submit', async (e) => {
   const btn = form.querySelector('button[type=submit]');
   btn.disabled = true;
   try {
-    const { id } = await api('/api/jobs', { method: 'POST', body });
-    attach(id);
-    $('#url').value = '';
+    const { ids } = await api('/api/jobs', { method: 'POST', body });
+    ids.forEach((id) => attach(id));
+    urlBox.value = '';
+    syncUrlBox();
   } catch (err) {
     errorEl.textContent = err.message;
     errorEl.hidden = false;
