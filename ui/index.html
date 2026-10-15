@@ -69,7 +69,18 @@
             <span>Simultanés</span>
             <input name="concurrency" type="number" min="1" max="10" value="3" />
           </label>
-          <label class="check"><input type="checkbox" name="listOnly" /> Lister seulement</label>
+          <label class="field">
+            <span>Téléchargement</span>
+            <select name="mode" id="mode">
+              <option value="auto">Tout, automatiquement</option>
+              <option value="batch">Par lots</option>
+              <option value="list">Lister seulement</option>
+            </select>
+          </label>
+          <label class="field narrow" id="batch-field">
+            <span>Taille du lot</span>
+            <input name="batchSize" type="number" min="1" max="100" value="5" />
+          </label>
         </div>
 
         <details class="advanced">
@@ -111,6 +122,7 @@
             <a class="job-url" target="_blank" rel="noreferrer"></a>
           </div>
           <div class="job-actions">
+            <button class="primary small" data-act="next" type="button" hidden>Les 5 suivantes</button>
             <button class="ghost small" data-act="all" type="button" hidden>Tout télécharger</button>
             <button class="ghost small" data-act="open" type="button">Ouvrir le dossier</button>
             <button class="ghost small" data-act="cancel" type="button">Annuler</button>
@@ -122,6 +134,7 @@
           <span><b data-stat="found">0</b> trouvées</span>
           <span><b data-stat="done">0</b> téléchargées</span>
           <span><b data-stat="failed">0</b> échecs</span>
+          <span data-wait hidden><b data-stat="waiting">0</b> en attente</span>
           <span class="last-log"></span>
         </div>
         <ul class="videos"></ul>

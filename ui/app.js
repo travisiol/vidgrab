@@ -85,11 +85,17 @@ try {
   /* storage unavailable */
 }
 
+const modeSelect = $('#mode');
+const syncBatchField = () => {
+  $('#batch-field').hidden = modeSelect.value !== 'batch';
+};
+modeSelect.addEventListener('change', syncBatchField);
+syncBatchField();
+
 form.addEventListener('submit', async (e) => {
   e.preventDefault();
   const fd = new FormData(form);
   const body = Object.fromEntries(fd.entries());
-  body.listOnly = fd.has('listOnly');
   body.ignoreRobots = fd.has('ignoreRobots');
   const errorEl = $('#form-error');
   errorEl.hidden = true;
@@ -130,6 +136,7 @@ function attach(id) {
     if (act === 'cancel') await api(`/api/jobs/${id}/cancel`, { method: 'POST' });
     if (act === 'open') await api(`/api/jobs/${id}/open`, { method: 'POST' });
     if (act === 'all') await api(`/api/jobs/${id}/download`, { method: 'POST', body: { all: true } });
+    if (act === 'next') await api(`/api/jobs/${id}/download`, { method: 'POST', body: { next: batchOf(view) } });
     if (act === 'dl') {
       const videoId = btn.closest('[data-id]').dataset.id;
       await api(`/api/jobs/${id}/download`, { method: 'POST', body: { videoId } });
@@ -177,6 +184,8 @@ function attach(id) {
   });
 }
 
+const batchOf = (view) => view.state?.options?.batchSize || 5;
+
 function renderJob(view) {
   const { el, state } = view;
   if (!state) return;
@@ -193,6 +202,13 @@ function renderJob(view) {
   $('[data-stat=failed]', el).textContent = count('error', 'drm');
   $('.last-log', el).textContent = state.log.at(-1)?.msg ?? '';
   $('[data-act=cancel]', el).hidden = state.status !== 'running';
+  const waiting = count('found');
+  const n = batchOf(view);
+  const next = $('[data-act=next]', el);
+  next.hidden = waiting === 0;
+  next.textContent = waiting > n ? `Les ${n} suivantes` : `Les ${waiting} dernière${waiting > 1 ? 's' : ''}`;
+  $('[data-wait]', el).hidden = waiting === 0;
+  $('[data-stat=waiting]', el).textContent = waiting;
   $('[data-act=all]', el).hidden = !videos.some((v) => ['found', 'error', 'cancelled'].includes(v.status));
 }
 

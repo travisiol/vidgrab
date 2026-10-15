@@ -1,3 +1,7 @@
+[hidden] {
+  display: none !important;
+}
+
 :root {
   --bg: #f6f5f1;
   --card: #ffffff;

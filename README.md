@@ -22,6 +22,9 @@ Pour chaque URL, dans l'ordre :
 3. **Navigateur invisible** (Chrome/Edge local via Playwright) : charge la page, lance les lecteurs, et capture
    les requêtes `.m3u8` / `.mpd` / `video/*`. C'est ce qui attrape les lecteurs JavaScript (hls.js, video.js, SPA).
 
+Dans l'interface, « Téléchargement » propose : tout automatiquement, **par lots** (les N premières partent,
+puis le bouton « Les N suivantes »), ou lister seulement (chaque vidéo a son bouton).
+
 Les flux HLS/DASH sont assemblés en `.mp4` par ffmpeg. Les variantes d'une même playlist HLS sont regroupées,
 les pubs vidéo (régies connues, VAST/VPAID) sont ignorées.
 
@@ -34,6 +37,7 @@ filtres regex inclure/exclure) et applique la même chaîne à chaque page.
 node src/cli.js https://exemple.com/video/123
 node src/cli.js https://exemple.com --site --max-pages 500 --include "/videos/"
 node src/cli.js https://exemple.com --site --list        # liste sans télécharger
+node src/cli.js https://exemple.com/page --batch 5       # 5 par 5 : Entrée = lot suivant
 node src/cli.js --help
 ```
 

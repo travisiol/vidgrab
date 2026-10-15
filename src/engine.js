@@ -34,6 +34,7 @@ export const DEFAULTS = {
   scanConcurrency: 3,
   delayMs: 400,
   listOnly: false,
+  batchSize: 0, // > 0: download N videos, then wait for downloadNext() (« 5 par 5 »)
   respectRobots: true,
   sameSite: true, // site scope: include subdomains of the same domain
   include: '', // regex: only crawl URLs that match
@@ -72,6 +73,12 @@ export class Job extends EventEmitter {
     this.browser = null;
     this.browserPromise = null;
     this.lastEmit = new Map();
+    // Batch mode: how many newly found videos may still start on their own.
+    this.allowance = this.opts.batchSize > 0 && !this.opts.listOnly ? this.opts.batchSize : 0;
+  }
+
+  get manual() {
+    return this.opts.listOnly || this.opts.batchSize > 0;
   }
 
   // ---------- events ----------
@@ -112,13 +119,18 @@ export class Job extends EventEmitter {
         if (this.opts.scope === 'site') await this.crawl();
         else await this.scanPage(this.url, 0, { rootPage: true });
       }
+      this.discoveryDone = true;
+      this.allowance = 0;
       await this.downloadsIdle();
       if (this.cancelled) return this.setStatus('cancelled');
       const done = this.state.videos.filter((v) => v.status === 'done' || v.status === 'exists').length;
       const found = this.state.videos.length;
+      const waiting = this.state.videos.filter((v) => v.status === 'found').length;
       this.log(
         found
-          ? `Terminé : ${found} vidéo(s) trouvée(s)${this.opts.listOnly ? '' : `, ${done} téléchargée(s)`}.`
+          ? `Terminé : ${found} vidéo(s) trouvée(s)${this.opts.listOnly ? '' : `, ${done} téléchargée(s)`}${
+              waiting ? `, ${waiting} en attente` : ''
+            }.`
           : 'Terminé : aucune vidéo trouvée.',
         found ? 'success' : 'warn',
       );
@@ -162,7 +174,7 @@ export class Job extends EventEmitter {
     }
     this.log(
       `Analyse de ${this.url} — ${opts.scope === 'site' ? `site entier (max ${opts.maxPages} pages)` : 'page seule'}${
-        opts.listOnly ? ', liste seulement' : ''
+        opts.listOnly ? ', liste seulement' : opts.batchSize > 0 ? `, par lots de ${opts.batchSize}` : ''
       }`,
     );
   }
@@ -494,7 +506,7 @@ export class Job extends EventEmitter {
       duration,
       extractor,
       source,
-      status: this.opts.listOnly ? 'found' : 'queued',
+      status: 'found',
       percent: null,
       speed: null,
       eta: null,
@@ -504,21 +516,23 @@ export class Job extends EventEmitter {
     };
     this.state.videos.push(video);
     this.emit('event', { type: 'video', data: video });
-    if (!this.opts.listOnly) this.enqueueDownload(video);
+    if (!this.manual) this.enqueueDownload(video);
+    else if (this.allowance > 0 && this.enqueueDownload(video)) this.allowance--;
     return 1;
   }
 
   // ---------- downloads ----------
 
   enqueueDownload(video) {
-    if (this.cancelled) return;
+    if (this.cancelled) return false;
     if (video.kind !== 'native' && this.doneDirect.has(mediaKey(video.url))) {
       this.updateVideo(video, { status: 'exists', percent: 100 });
-      return;
+      return false;
     }
     this.updateVideo(video, { status: 'queued', error: null });
     this.dlQueue.push(video);
     this.pump();
+    return true;
   }
 
   /** Manual download of a video found in list-only mode (from the UI). */
@@ -528,9 +542,21 @@ export class Job extends EventEmitter {
     this.cancelled = false;
     const wasIdle = this.state.status !== 'running';
     if (wasIdle) this.setStatus('running');
-    this.enqueueDownload(video);
+    const queued = this.enqueueDownload(video);
     if (wasIdle) this.downloadsIdle().then(() => this.setStatus('done'));
-    return true;
+    return queued;
+  }
+
+  /**
+   * Starts the next `n` videos still waiting, in the order they were found. While discovery is
+   * still running, the unused part of the batch applies to videos found later.
+   */
+  downloadNext(n) {
+    const waiting = this.state.videos.filter((v) => v.status === 'found').slice(0, n);
+    let started = 0;
+    for (const v of waiting) if (this.downloadVideo(v.id)) started++;
+    if (this.state.status === 'running' && !this.discoveryDone) this.allowance += n - started;
+    return started;
   }
 
   pump() {

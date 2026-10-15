@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
+import readline from 'node:readline/promises';
 import { Job, DEFAULTS } from './engine.js';
 import { locateYtDlp, ffmpegLocation } from './ytdlp.js';
 import { findBrowser } from './browser.js';
@@ -18,6 +19,7 @@ Options
   -j, --jobs <n>          téléchargements simultanés       (défaut ${DEFAULTS.concurrency})
   -o, --out <dossier>     dossier de sortie                (défaut ./downloads)
   -l, --list              liste les vidéos sans télécharger
+  -n, --batch <n>         télécharge par lots de n (Entrée = lot suivant)
       --include <regex>   ne parcourt que les URL qui matchent
       --exclude <regex>   ignore les URL qui matchent
       --cookies <fichier> cookies.txt (format Netscape) pour un site où tu es connecté
@@ -40,6 +42,7 @@ try {
       jobs: { type: 'string', short: 'j' },
       out: { type: 'string', short: 'o' },
       list: { type: 'boolean', short: 'l' },
+      batch: { type: 'string', short: 'n' },
       include: { type: 'string' },
       exclude: { type: 'string' },
       cookies: { type: 'string' },
@@ -90,6 +93,7 @@ const job = new Job(positionals[0], {
   concurrency: int(a.jobs),
   outDir: a.out,
   listOnly: a.list,
+  batchSize: int(a.batch),
   include: a.include,
   exclude: a.exclude,
   cookiesFile: a.cookies,
@@ -134,6 +138,24 @@ process.on('SIGINT', () => {
 
 await job.run();
 clearProgress();
+
+// --batch: after the first lot, each Enter starts the next one.
+const batch = int(a.batch);
+const waitingCount = () => job.state.videos.filter((v) => v.status === 'found').length;
+if (batch > 0 && !a.list && job.state.status === 'done' && waitingCount() && process.stdin.isTTY) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  while (waitingCount() && !job.cancelled) {
+    const answer = await rl.question(
+      c.cyan(`
+${waitingCount()} vidéo(s) en attente — Entrée = les ${Math.min(batch, waitingCount())} suivantes, q = quitter : `),
+    );
+    if (answer.trim().toLowerCase().startsWith('q')) break;
+    job.downloadNext(batch);
+    await job.downloadsIdle();
+    clearProgress();
+  }
+  rl.close();
+}
 const vids = job.state.videos;
 const count = (s) => vids.filter((v) => v.status === s).length;
 console.log(

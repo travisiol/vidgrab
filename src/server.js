@@ -97,7 +97,8 @@ const server = http.createServer(async (req, res) => {
           browser: ['auto', 'always', 'never'].includes(body.browser) ? body.browser : undefined,
           quality: body.quality,
           concurrency: body.concurrency ? Number(body.concurrency) : undefined,
-          listOnly: !!body.listOnly,
+          listOnly: body.mode === 'list' || !!body.listOnly,
+          batchSize: body.mode === 'batch' ? Math.max(1, Number(body.batchSize) || 5) : 0,
           include: body.include || undefined,
           exclude: body.exclude || undefined,
           respectRobots: body.ignoreRobots ? false : undefined,
@@ -143,6 +144,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && action === 'download') {
       const body = await readJson(req);
+      if (body.next) return send(res, 200, { started: job.downloadNext(Number(body.next)) });
       const ids = body.all
         ? job.state.videos.filter((v) => ['found', 'error', 'cancelled'].includes(v.status)).map((v) => v.id)
         : [body.videoId];
